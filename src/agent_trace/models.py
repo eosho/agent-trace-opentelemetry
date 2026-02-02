@@ -15,6 +15,35 @@ class ContributorType(StrEnum):
     UNKNOWN = "unknown"
 
 
+class EventType(StrEnum):
+    """Types of events that can be traced."""
+
+    # File operations
+    FILE_CREATE = "file_create"
+    FILE_EDIT = "file_edit"
+    FILE_DELETE = "file_delete"
+
+    # Session lifecycle
+    SESSION_START = "session_start"
+    SESSION_END = "session_end"
+
+    # Code assistance
+    CODE_REVIEW = "code_review"
+    CODE_SUGGEST = "code_suggest"
+    REFACTOR = "refactor"
+    DEBUG = "debug"
+
+    # Testing
+    TEST_GENERATE = "test_generate"
+    TEST_RUN = "test_run"
+
+    # Terminal/commands
+    COMMAND_RUN = "command_run"
+
+    # Generic
+    CUSTOM = "custom"
+
+
 class FileRange(BaseModel):
     """A range of lines in a file."""
 

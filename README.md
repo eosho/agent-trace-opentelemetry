@@ -42,7 +42,7 @@ uv add agent-trace --extra azure
 ### Dependencies
 
 | Package | Included In |
-|---------|-------------|
+| --------- | ------------- |
 | opentelemetry-api, opentelemetry-sdk | Base install |
 | opentelemetry-exporter-otlp | `[otlp]` extra |
 | azure-monitor-opentelemetry-exporter | `[azure]` extra |
@@ -53,26 +53,26 @@ uv add agent-trace --extra azure
 
 1. **Install agent-trace**:
 
-  ```bash
-  pip install agent-trace[trace]
-  ```
+   ```bash
+   pip install agent-trace[trace]
+   ```
 
-2. **Configure Claude Code** — Copy to `~/.claude/settings.json`:
+1. **Configure Claude Code** — Copy to `~/.claude/settings.json`:
 
-  ```json
-  {
-    "hooks": {
-      "PostToolUse": [
-        {
-          "matcher": "Write|Edit",
-          "command": "agent-trace"
-        }
-      ]
-    }
-  }
-  ```
+   ```json
+   {
+     "hooks": {
+       "PostToolUse": [
+         {
+           "matcher": "Write|Edit",
+           "command": "agent-trace"
+         }
+       ]
+     }
+   }
+   ```
 
-3. **Restart Claude Code** — The hook runs automatically on every file edit
+1. **Restart Claude Code** — The hook runs automatically on every file edit
 
 ### Option 2: Programmatic Usage
 
@@ -197,15 +197,127 @@ export APPLICATIONINSIGHTS_CONNECTION_STRING="InstrumentationKey=xxx;..."
 ### Models
 
 - **`TraceEvent`** — Core event model with file path, ranges, contributor info
+- **`EventType`** — Enum for event types (see Event Types below)
 - **`FileRange`** — Line range within a file (1-indexed)
 - **`ContributorType`** — Enum: `HUMAN`, `AI`, `MIXED`, `UNKNOWN`
 - **`Contributor`** — Attribution info with type and model ID
 - **`HookInput`** — Claude Code hook input schema
 
+### Event Types
+
+Agent Trace supports tracking various AI coding events:
+
+| Event Type | Method | Description |
+| ------------ | -------- | ------------- |
+| `FILE_CREATE` | `trace_file_create()` | New file creation |
+| `FILE_EDIT` | `trace_file_edit()` | File modification |
+| `FILE_DELETE` | `trace_file_delete()` | File deletion |
+| `SESSION_START` | `trace_session_start()` | Coding session start |
+| `SESSION_END` | `trace_session_end()` | Coding session end |
+| `CODE_REVIEW` | `trace_code_review()` | Code review/analysis |
+| `CODE_SUGGEST` | `trace_code_suggestion()` | Autocomplete/inline suggestions |
+| `REFACTOR` | `trace_refactor()` | Code refactoring |
+| `DEBUG` | `trace_debug()` | Debugging assistance |
+| `TEST_GENERATE` | `trace_test_generate()` | Test generation |
+| `TEST_RUN` | `trace_test_run()` | Test execution |
+| `COMMAND_RUN` | `trace_command_run()` | Terminal command execution |
+| `CUSTOM` | `trace_custom()` | Custom events |
+
+### Usage Examples
+
+```python
+from agent_trace import AgentTracer, FileRange, get_tracer
+
+tracer = get_tracer()
+
+# Track session lifecycle
+tracer.trace_session_start(
+    session_id="session-123",
+    model="claude-opus-4-20250514",
+    metadata={"workspace": "/home/user/project"},
+)
+
+# Track file operations
+tracer.trace_file_create(
+    file_path="src/new_module.py",
+    model="claude-sonnet-4-20250514",
+    line_count=50,
+)
+
+tracer.trace_file_edit(
+    file_path="src/main.py",
+    ranges=[FileRange(start_line=10, end_line=25)],
+    model="claude-sonnet-4-20250514",
+)
+
+# Track code assistance
+tracer.trace_code_review(
+    file_path="src/api.py",
+    ranges=[FileRange(start_line=1, end_line=100)],
+    model="claude-opus-4-20250514",
+    review_type="security",
+    findings=["SQL injection risk"],
+)
+
+tracer.trace_refactor(
+    file_path="src/utils.py",
+    ranges=[FileRange(start_line=20, end_line=50)],
+    model="claude-sonnet-4-20250514",
+    refactor_type="extract_method",
+)
+
+# Track testing
+tracer.trace_test_generate(
+    file_path="tests/test_api.py",
+    ranges=[FileRange(start_line=1, end_line=80)],
+    model="claude-sonnet-4-20250514",
+    test_framework="pytest",
+    test_count=5,
+)
+
+tracer.trace_test_run(
+    model="claude-sonnet-4-20250514",
+    passed=10,
+    failed=2,
+    skipped=1,
+)
+
+# Track terminal commands
+tracer.trace_command_run(
+    command="pytest -v",
+    model="claude-sonnet-4-20250514",
+    exit_code=0,
+)
+
+# Track custom events
+tracer.trace_custom(
+    event_name="deployment",
+    metadata={"environment": "staging"},
+)
+
+# End session
+tracer.trace_session_end(
+    session_id="session-123",
+    metadata={"duration_seconds": 3600},
+)
+```
+
 ### Tracer Methods
 
 - **`trace_event(event)`** — Record a generic trace event
-- **`trace_file_edit(...)`** — Convenience method for file edits
+- **`trace_file_create(...)`** — Track file creation
+- **`trace_file_edit(...)`** — Track file edits
+- **`trace_file_delete(...)`** — Track file deletion
+- **`trace_session_start(...)`** — Track session start
+- **`trace_session_end(...)`** — Track session end
+- **`trace_code_review(...)`** — Track code reviews
+- **`trace_code_suggestion(...)`** — Track code suggestions
+- **`trace_refactor(...)`** — Track refactoring
+- **`trace_debug(...)`** — Track debugging
+- **`trace_test_generate(...)`** — Track test generation
+- **`trace_test_run(...)`** — Track test execution
+- **`trace_command_run(...)`** — Track terminal commands
+- **`trace_custom(...)`** — Track custom events
 - **`handle_hook(hook_input)`** — Process Claude Code hook input
 
 ## Development
@@ -242,6 +354,7 @@ Agent Trace uses these OpenTelemetry semantic attributes:
 | --------- | ----------- |
 | `agent_trace.contributor.type` | `human`, `ai`, `mixed`, `unknown` |
 | `agent_trace.contributor.model_id` | Normalized model ID |
+| `agent_trace.event.type` | Event type (file_edit, session_start, etc.) |
 | `agent_trace.file.path` | Relative file path |
 | `agent_trace.range.start_line` | 1-indexed start line |
 | `agent_trace.range.end_line` | 1-indexed end line |

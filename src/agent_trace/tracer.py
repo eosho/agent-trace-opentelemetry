@@ -20,7 +20,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 from opentelemetry.semconv.attributes import service_attributes
 from opentelemetry.trace import Status, StatusCode
 
-from agent_trace.models import ContributorType, FileRange, HookInput, TraceEvent
+from agent_trace.models import ContributorType, EventType, FileRange, HookInput, TraceEvent
 
 if TYPE_CHECKING:
     pass
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 # Semantic convention attributes for agent traces
 ATTR_CONTRIBUTOR_TYPE = "agent_trace.contributor.type"
 ATTR_MODEL_ID = "agent_trace.contributor.model_id"
+ATTR_EVENT_TYPE = "agent_trace.event.type"
 ATTR_FILE_PATH = "agent_trace.file.path"
 ATTR_RANGE_START = "agent_trace.range.start_line"
 ATTR_RANGE_END = "agent_trace.range.end_line"
@@ -122,58 +123,45 @@ def _to_relative_path(absolute_path: str, root: Path) -> str:
         return absolute_path
 
 
-def _write_trace_record(
-    file_path: str,
-    ranges: list[FileRange],
-    *,
-    model_id: str | None = None,
-    tool_name: str | None = None,
-    session_id: str | None = None,
-    transcript_url: str | None = None,
-    metadata: Mapping[str, str | int | float | bool] | None = None,
+def _write_event_record(
+    event: TraceEvent,
+    workspace_root: Path,
 ) -> None:
-    """Write a trace record to the JSONL file.
+    """Write a trace event record to the JSONL file.
 
     Args:
-        file_path: Relative file path from repo root.
-        ranges: Line ranges that were modified.
-        model_id: Normalized model ID.
-        tool_name: Tool that made the change.
-        session_id: Coding session ID.
-        transcript_url: URL to conversation transcript.
-        metadata: Additional metadata.
+        event: The trace event to record.
+        workspace_root: The workspace root directory.
     """
-    root = _get_workspace_root()
-    trace_path = root / TRACE_FILE
+    trace_path = workspace_root / TRACE_FILE
 
-    # Ensure directory exists
     trace_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Build file info if present
+    file_info = None
+    if event.file_path:
+        relative_path = _to_relative_path(event.file_path, workspace_root)
+        file_info = {
+            "path": relative_path,
+            "ranges": [{"start_line": r.start_line, "end_line": r.end_line} for r in event.ranges]
+            if event.ranges
+            else [],
+        }
+
     record = {
-        "version": "1.0",
+        "version": "1.1",
         "id": str(uuid4()),
+        "event_type": str(event.event_type),
         "timestamp": datetime.now(UTC).isoformat(),
+        "session_id": event.session_id,
         "vcs": {"type": "git", "revision": _get_git_revision()},
-        "tool": {"name": "claude-code"},
-        "files": [
-            {
-                "path": file_path,
-                "conversations": [
-                    {
-                        "url": transcript_url,
-                        "contributor": {"type": "ai", "model_id": model_id},
-                        "ranges": [
-                            {"start_line": r.start_line, "end_line": r.end_line} for r in ranges
-                        ],
-                    }
-                ],
-            }
-        ],
-        "metadata": {
-            "tool_name": tool_name,
-            "session_id": session_id,
-            **(metadata or {}),
+        "contributor": {
+            "type": event.contributor.type.value,
+            "model_id": event.contributor.model_id,
         },
+        "file": file_info,
+        "tool_name": event.tool_name,
+        "metadata": event.metadata or {},
     }
 
     with trace_path.open("a") as f:
@@ -230,11 +218,16 @@ class AgentTracer:
         self._tracer = trace.get_tracer(__name__)
 
     def trace_event(self, event: TraceEvent) -> None:
-        """Record a trace event as an OTel span.
+        """Record a trace event as an OTel span and optionally to JSONL file.
 
         Args:
             event: The trace event to record.
         """
+        # Write to JSONL file if enabled
+        if self._file_export:
+            _write_event_record(event, self._workspace_root)
+
+        # Emit OTel span
         with self._tracer.start_as_current_span(
             name=f"agent.{event.event_type}",
         ) as span:
@@ -296,22 +289,9 @@ class AgentTracer:
         from agent_trace.models import Contributor
 
         model_id = _normalize_model_id(model)
-        relative_path = _to_relative_path(file_path, self._workspace_root)
 
-        # Write to JSONL file if enabled
-        if self._file_export:
-            _write_trace_record(
-                file_path=relative_path,
-                ranges=ranges,
-                model_id=model_id,
-                tool_name=tool_name,
-                session_id=session_id,
-                transcript_url=transcript_url,
-            )
-
-        # Also emit OTel span
         event = TraceEvent(
-            event_type="file_edit",
+            event_type=EventType.FILE_EDIT,
             file_path=file_path,
             ranges=ranges,
             contributor=Contributor(
@@ -321,6 +301,421 @@ class AgentTracer:
             tool_name=tool_name,
             session_id=session_id,
             metadata={"transcript_url": transcript_url} if transcript_url else {},
+        )
+        self.trace_event(event)
+
+    def trace_file_create(
+        self,
+        file_path: str,
+        *,
+        model: str | None = None,
+        tool_name: str | None = None,
+        session_id: str | None = None,
+        line_count: int = 0,
+    ) -> None:
+        """Trace a file creation event.
+
+        Args:
+            file_path: Path to the created file.
+            model: Model ID that created the file.
+            tool_name: Tool name (e.g., "Write").
+            session_id: Coding session ID.
+            line_count: Number of lines in the created file.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        ranges = [FileRange(start_line=1, end_line=max(1, line_count))] if line_count else []
+
+        event = TraceEvent(
+            event_type=EventType.FILE_CREATE,
+            file_path=file_path,
+            ranges=ranges,
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            tool_name=tool_name,
+            session_id=session_id,
+        )
+        self.trace_event(event)
+
+    def trace_file_delete(
+        self,
+        file_path: str,
+        *,
+        model: str | None = None,
+        tool_name: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Trace a file deletion event.
+
+        Args:
+            file_path: Path to the deleted file.
+            model: Model ID that deleted the file.
+            tool_name: Tool name (e.g., "Delete").
+            session_id: Coding session ID.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+
+        event = TraceEvent(
+            event_type=EventType.FILE_DELETE,
+            file_path=file_path,
+            ranges=[],
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            tool_name=tool_name,
+            session_id=session_id,
+        )
+        self.trace_event(event)
+
+    def trace_session_start(
+        self,
+        session_id: str,
+        *,
+        model: str | None = None,
+        metadata: Mapping[str, str | int | float | bool] | None = None,
+    ) -> None:
+        """Trace a coding session start.
+
+        Args:
+            session_id: The session ID.
+            model: Model ID used in the session.
+            metadata: Additional session metadata (e.g., workspace, prompt).
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+
+        event = TraceEvent(
+            event_type=EventType.SESSION_START,
+            ranges=[],
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=dict(metadata) if metadata else {},
+        )
+        self.trace_event(event)
+
+    def trace_session_end(
+        self,
+        session_id: str,
+        *,
+        model: str | None = None,
+        metadata: Mapping[str, str | int | float | bool] | None = None,
+    ) -> None:
+        """Trace a coding session end.
+
+        Args:
+            session_id: The session ID.
+            model: Model ID used in the session.
+            metadata: Additional session metadata (e.g., duration, tokens).
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+
+        event = TraceEvent(
+            event_type=EventType.SESSION_END,
+            ranges=[],
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=dict(metadata) if metadata else {},
+        )
+        self.trace_event(event)
+
+    def trace_code_review(
+        self,
+        file_path: str,
+        ranges: list[FileRange],
+        *,
+        model: str | None = None,
+        session_id: str | None = None,
+        review_type: str | None = None,
+        findings: list[str] | None = None,
+    ) -> None:
+        """Trace a code review event.
+
+        Args:
+            file_path: Path to the reviewed file.
+            ranges: Line ranges that were reviewed.
+            model: Model ID that performed the review.
+            session_id: Coding session ID.
+            review_type: Type of review (e.g., "security", "style", "performance").
+            findings: List of review findings/comments.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        metadata: dict[str, str | int | float | bool] = {}
+        if review_type:
+            metadata["review_type"] = review_type
+        if findings:
+            metadata["finding_count"] = len(findings)
+
+        event = TraceEvent(
+            event_type=EventType.CODE_REVIEW,
+            file_path=file_path,
+            ranges=ranges,
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=metadata,
+        )
+        self.trace_event(event)
+
+    def trace_code_suggestion(
+        self,
+        file_path: str,
+        ranges: list[FileRange],
+        *,
+        model: str | None = None,
+        session_id: str | None = None,
+        suggestion_type: str | None = None,
+    ) -> None:
+        """Trace a code suggestion event (autocomplete, inline suggestion).
+
+        Args:
+            file_path: Path to the file with suggestions.
+            ranges: Line ranges where suggestions were made.
+            model: Model ID that made the suggestions.
+            session_id: Coding session ID.
+            suggestion_type: Type of suggestion (e.g., "autocomplete", "inline").
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        metadata: dict[str, str | int | float | bool] = {}
+        if suggestion_type:
+            metadata["suggestion_type"] = suggestion_type
+
+        event = TraceEvent(
+            event_type=EventType.CODE_SUGGEST,
+            file_path=file_path,
+            ranges=ranges,
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=metadata,
+        )
+        self.trace_event(event)
+
+    def trace_refactor(
+        self,
+        file_path: str,
+        ranges: list[FileRange],
+        *,
+        model: str | None = None,
+        session_id: str | None = None,
+        refactor_type: str | None = None,
+    ) -> None:
+        """Trace a refactoring event.
+
+        Args:
+            file_path: Path to the refactored file.
+            ranges: Line ranges that were refactored.
+            model: Model ID that performed the refactoring.
+            session_id: Coding session ID.
+            refactor_type: Type of refactoring (e.g., "rename", "extract", "inline").
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        metadata: dict[str, str | int | float | bool] = {}
+        if refactor_type:
+            metadata["refactor_type"] = refactor_type
+
+        event = TraceEvent(
+            event_type=EventType.REFACTOR,
+            file_path=file_path,
+            ranges=ranges,
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=metadata,
+        )
+        self.trace_event(event)
+
+    def trace_debug(
+        self,
+        file_path: str,
+        ranges: list[FileRange],
+        *,
+        model: str | None = None,
+        session_id: str | None = None,
+        issue_type: str | None = None,
+        resolved: bool = False,
+    ) -> None:
+        """Trace a debugging event.
+
+        Args:
+            file_path: Path to the debugged file.
+            ranges: Line ranges involved in debugging.
+            model: Model ID that performed debugging.
+            session_id: Coding session ID.
+            issue_type: Type of issue debugged (e.g., "error", "warning", "logic").
+            resolved: Whether the issue was resolved.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        metadata: dict[str, str | int | float | bool] = {"resolved": resolved}
+        if issue_type:
+            metadata["issue_type"] = issue_type
+
+        event = TraceEvent(
+            event_type=EventType.DEBUG,
+            file_path=file_path,
+            ranges=ranges,
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=metadata,
+        )
+        self.trace_event(event)
+
+    def trace_test_generate(
+        self,
+        file_path: str,
+        ranges: list[FileRange],
+        *,
+        model: str | None = None,
+        session_id: str | None = None,
+        test_framework: str | None = None,
+        test_count: int | None = None,
+    ) -> None:
+        """Trace a test generation event.
+
+        Args:
+            file_path: Path to the generated test file.
+            ranges: Line ranges of generated tests.
+            model: Model ID that generated the tests.
+            session_id: Coding session ID.
+            test_framework: Test framework used (e.g., "pytest", "jest").
+            test_count: Number of tests generated.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        metadata: dict[str, str | int | float | bool] = {}
+        if test_framework:
+            metadata["test_framework"] = test_framework
+        if test_count is not None:
+            metadata["test_count"] = test_count
+
+        event = TraceEvent(
+            event_type=EventType.TEST_GENERATE,
+            file_path=file_path,
+            ranges=ranges,
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=metadata,
+        )
+        self.trace_event(event)
+
+    def trace_test_run(
+        self,
+        *,
+        model: str | None = None,
+        session_id: str | None = None,
+        test_file: str | None = None,
+        passed: int = 0,
+        failed: int = 0,
+        skipped: int = 0,
+    ) -> None:
+        """Trace a test execution event.
+
+        Args:
+            model: Model ID that triggered the test run.
+            session_id: Coding session ID.
+            test_file: Path to the test file (if specific).
+            passed: Number of tests passed.
+            failed: Number of tests failed.
+            skipped: Number of tests skipped.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        metadata: dict[str, str | int | float | bool] = {
+            "passed": passed,
+            "failed": failed,
+            "skipped": skipped,
+            "total": passed + failed + skipped,
+        }
+
+        event = TraceEvent(
+            event_type=EventType.TEST_RUN,
+            file_path=test_file,
+            ranges=[],
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=metadata,
+        )
+        self.trace_event(event)
+
+    def trace_command_run(
+        self,
+        command: str,
+        *,
+        model: str | None = None,
+        session_id: str | None = None,
+        exit_code: int | None = None,
+        working_dir: str | None = None,
+    ) -> None:
+        """Trace a terminal command execution event.
+
+        Args:
+            command: The command that was executed.
+            model: Model ID that ran the command.
+            session_id: Coding session ID.
+            exit_code: Command exit code.
+            working_dir: Working directory for the command.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        metadata: dict[str, str | int | float | bool] = {"command": command}
+        if exit_code is not None:
+            metadata["exit_code"] = exit_code
+        if working_dir:
+            metadata["working_dir"] = working_dir
+
+        event = TraceEvent(
+            event_type=EventType.COMMAND_RUN,
+            ranges=[],
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=metadata,
+        )
+        self.trace_event(event)
+
+    def trace_custom(
+        self,
+        event_name: str,
+        *,
+        file_path: str | None = None,
+        ranges: list[FileRange] | None = None,
+        model: str | None = None,
+        session_id: str | None = None,
+        metadata: Mapping[str, str | int | float | bool] | None = None,
+    ) -> None:
+        """Trace a custom event.
+
+        Args:
+            event_name: Name of the custom event.
+            file_path: Optional file path associated with the event.
+            ranges: Optional line ranges.
+            model: Model ID associated with the event.
+            session_id: Coding session ID.
+            metadata: Additional metadata.
+        """
+        from agent_trace.models import Contributor
+
+        model_id = _normalize_model_id(model)
+        event_metadata: dict[str, str | int | float | bool] = {"custom_event_name": event_name}
+        if metadata:
+            event_metadata |= metadata
+
+        event = TraceEvent(
+            event_type=EventType.CUSTOM,
+            file_path=file_path,
+            ranges=ranges or [],
+            contributor=Contributor(type=ContributorType.AI, model_id=model_id),
+            session_id=session_id,
+            metadata=event_metadata,
         )
         self.trace_event(event)
 
@@ -378,12 +773,6 @@ def get_tracer(
 ) -> AgentTracer:
     """Get the singleton AgentTracer instance.
 
-    Configuration can be set via parameters or environment variables:
-    - AGENT_TRACE_OTLP_ENDPOINT: OTLP endpoint URL
-    - APPLICATIONINSIGHTS_CONNECTION_STRING: Azure Application Insights connection string
-    - AGENT_TRACE_FILE_EXPORT: Enable file export (true/false)
-    - AGENT_TRACE_CONSOLE_EXPORT: Enable console export (true/false)
-
     Args:
         console_export: Whether to export to console (env: AGENT_TRACE_CONSOLE_EXPORT).
         file_export: Whether to write to .agent-trace/traces.jsonl (env: AGENT_TRACE_FILE_EXPORT).
@@ -394,7 +783,6 @@ def get_tracer(
     Returns:
         The AgentTracer singleton.
     """
-    # Resolve configuration: explicit params > env vars > defaults
     resolved_console = (
         console_export
         if console_export is not None

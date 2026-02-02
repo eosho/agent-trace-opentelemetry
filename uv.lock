@@ -11,16 +11,20 @@ name = "agent-trace"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "opentelemetry-semantic-conventions" },
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "azure-monitor-opentelemetry-exporter" },
+    { name = "opentelemetry-exporter-otlp" },
+]
 azure = [
     { name = "azure-monitor-opentelemetry-exporter" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-sdk" },
-    { name = "opentelemetry-semantic-conventions" },
 ]
 dev = [
     { name = "basedpyright" },
@@ -35,24 +39,20 @@ dev = [
     { name = "sloppylint" },
     { name = "vulture" },
 ]
-trace = [
-    { name = "opentelemetry-api" },
+otlp = [
     { name = "opentelemetry-exporter-otlp" },
-    { name = "opentelemetry-sdk" },
-    { name = "opentelemetry-semantic-conventions" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "azure-monitor-opentelemetry-exporter", marker = "extra == 'all'", specifier = ">=1.0.0b21" },
     { name = "azure-monitor-opentelemetry-exporter", marker = "extra == 'azure'", specifier = ">=1.0.0b21" },
     { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.29.0" },
-    { name = "opentelemetry-api", marker = "extra == 'azure'", specifier = ">=1.28.0" },
-    { name = "opentelemetry-api", marker = "extra == 'trace'", specifier = ">=1.28.0" },
-    { name = "opentelemetry-exporter-otlp", marker = "extra == 'trace'", specifier = ">=1.28.0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'azure'", specifier = ">=1.28.0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'trace'", specifier = ">=1.28.0" },
-    { name = "opentelemetry-semantic-conventions", marker = "extra == 'azure'", specifier = ">=0.49b0" },
-    { name = "opentelemetry-semantic-conventions", marker = "extra == 'trace'", specifier = ">=0.49b0" },
+    { name = "opentelemetry-api", specifier = ">=1.28.0" },
+    { name = "opentelemetry-exporter-otlp", marker = "extra == 'all'", specifier = ">=1.28.0" },
+    { name = "opentelemetry-exporter-otlp", marker = "extra == 'otlp'", specifier = ">=1.28.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.28.0" },
+    { name = "opentelemetry-semantic-conventions", specifier = ">=0.49b0" },
     { name = "poethepoet", marker = "extra == 'dev'", specifier = ">=0.29.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = "==4.4.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
@@ -66,7 +66,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.12" },
     { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.14" },
 ]
-provides-extras = ["trace", "azure", "dev"]
+provides-extras = ["otlp", "azure", "all", "dev"]
 
 [[package]]
 name = "annotated-types"
