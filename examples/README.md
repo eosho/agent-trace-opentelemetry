@@ -185,18 +185,7 @@ tracer.trace_custom(
 
 | File | Description |
 |------|-------------|
-| [test_all_events.py](test_all_events.py) | Comprehensive test of all event types |
 | [hooks/](hooks/) | Claude Code and Cursor hook configurations |
-
-## Running the Examples
-
-```bash
-# Run the comprehensive event test
-uv run python examples/test_all_events.py
-
-# View the generated traces
-cat .agent-trace/traces.jsonl | jq -s '.'
-```
 
 ## Configuration
 
