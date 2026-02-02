@@ -52,7 +52,6 @@ coverage.xml
 
 # Environments
 .env
-.env.*
 !.env.sample
 .venv
 env/

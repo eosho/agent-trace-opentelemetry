@@ -42,6 +42,7 @@ TRACE_FILE = ".agent-trace/traces.jsonl"
 
 # Environment variable names
 ENV_OTLP_ENDPOINT = "AGENT_TRACE_OTLP_ENDPOINT"
+ENV_AZURE_CONNECTION_STRING = "APPLICATIONINSIGHTS_CONNECTION_STRING"
 ENV_FILE_EXPORT = "AGENT_TRACE_FILE_EXPORT"
 ENV_CONSOLE_EXPORT = "AGENT_TRACE_CONSOLE_EXPORT"
 
@@ -189,6 +190,7 @@ class AgentTracer:
         console_export: bool = False,
         file_export: bool = True,
         otlp_endpoint: str | None = None,
+        azure_connection_string: str | None = None,
     ) -> None:
         """Initialize the tracer.
 
@@ -197,6 +199,7 @@ class AgentTracer:
             console_export: Whether to export spans to console (for debugging).
             file_export: Whether to write traces to .agent-trace/traces.jsonl.
             otlp_endpoint: Optional OTLP endpoint for production export.
+            azure_connection_string: Optional Azure Application Insights connection string.
         """
         self._workspace_root = _get_workspace_root()
         self._file_export = file_export
@@ -212,11 +215,16 @@ class AgentTracer:
             provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
         if otlp_endpoint:
-            # Lazy import to avoid dependency if not used
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
             otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
             provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+
+        if azure_connection_string:
+            from azure.monitor.opentelemetry.exporter import AzureMonitorTraceExporter
+
+            azure_exporter = AzureMonitorTraceExporter(connection_string=azure_connection_string)
+            provider.add_span_processor(BatchSpanProcessor(azure_exporter))
 
         trace.set_tracer_provider(provider)
         self._tracer = trace.get_tracer(__name__)
@@ -230,7 +238,6 @@ class AgentTracer:
         with self._tracer.start_as_current_span(
             name=f"agent.{event.event_type}",
         ) as span:
-            # Core attributes
             span.set_attribute(ATTR_CONTRIBUTOR_TYPE, event.contributor.type.value)
 
             if event.contributor.model_id:
@@ -246,12 +253,10 @@ class AgentTracer:
             if event.session_id:
                 span.set_attribute(ATTR_SESSION_ID, event.session_id)
 
-            # Git revision for VCS context
             revision = _get_git_revision()
             if revision:
                 span.set_attribute(ATTR_GIT_REVISION, revision)
 
-            # Record line ranges as span events
             for i, range_ in enumerate(event.ranges):
                 span.add_event(
                     name=f"range.{i}",
@@ -369,11 +374,13 @@ def get_tracer(
     console_export: bool | None = None,
     file_export: bool | None = None,
     otlp_endpoint: str | None = None,
+    azure_connection_string: str | None = None,
 ) -> AgentTracer:
     """Get the singleton AgentTracer instance.
 
     Configuration can be set via parameters or environment variables:
     - AGENT_TRACE_OTLP_ENDPOINT: OTLP endpoint URL
+    - APPLICATIONINSIGHTS_CONNECTION_STRING: Azure Application Insights connection string
     - AGENT_TRACE_FILE_EXPORT: Enable file export (true/false)
     - AGENT_TRACE_CONSOLE_EXPORT: Enable console export (true/false)
 
@@ -381,6 +388,8 @@ def get_tracer(
         console_export: Whether to export to console (env: AGENT_TRACE_CONSOLE_EXPORT).
         file_export: Whether to write to .agent-trace/traces.jsonl (env: AGENT_TRACE_FILE_EXPORT).
         otlp_endpoint: Optional OTLP endpoint (env: AGENT_TRACE_OTLP_ENDPOINT).
+        azure_connection_string: Azure Application Insights connection string
+            (env: APPLICATIONINSIGHTS_CONNECTION_STRING).
 
     Returns:
         The AgentTracer singleton.
@@ -395,9 +404,11 @@ def get_tracer(
         file_export if file_export is not None else _get_env_bool(ENV_FILE_EXPORT, default=True)
     )
     resolved_otlp = otlp_endpoint or os.environ.get(ENV_OTLP_ENDPOINT)
+    resolved_azure = azure_connection_string or os.environ.get(ENV_AZURE_CONNECTION_STRING)
 
     return AgentTracer(
         console_export=resolved_console,
         file_export=resolved_file,
         otlp_endpoint=resolved_otlp,
+        azure_connection_string=resolved_azure,
     )

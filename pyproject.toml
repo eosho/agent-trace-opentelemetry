@@ -27,30 +27,22 @@ classifiers = [
 dependencies = [
     "pydantic>=2.9.0",
     "typing-extensions>=4.12",
-]
-
-[project.optional-dependencies]
-trace = [
     "opentelemetry-api>=1.28.0",
     "opentelemetry-sdk>=1.28.0",
     "opentelemetry-semantic-conventions>=0.49b0",
+]
+
+[project.optional-dependencies]
+otlp = [
     "opentelemetry-exporter-otlp>=1.28.0",
 ]
-# Uncomment extras as needed for your project
-# api = [
-#     "fastapi>=0.115.0",
-#     "uvicorn[standard]>=0.30.0",
-# ]
-# ai = [
-#     "langchain>=1.0.5",
-#     "langchain-openai>=1.0.2",
-#     "langgraph>=1.0.2",
-# ]
-# db = [
-#     "sqlalchemy>=2.0.0",
-#     "alembic>=1.13.0",
-#     "asyncpg>=0.29.0",
-# ]
+azure = [
+    "azure-monitor-opentelemetry-exporter>=1.0.0b21",
+]
+all = [
+    "opentelemetry-exporter-otlp>=1.28.0",
+    "azure-monitor-opentelemetry-exporter>=1.0.0b21",
+]
 
 dev = [
     "pytest>=8.3.0",

@@ -6,11 +6,12 @@
 
 **OpenTelemetry-based AI code attribution tracking** for Claude Code and other AI coding assistants.
 
-Track which AI models made which code changes and export traces to observability backends like Jaeger, Datadog, or Honeycomb.
+Track which AI models made which code changes and export traces to observability backends like Jaeger, Datadog, Azure Monitor, or Honeycomb.
 
 ## Features
 
 - **OpenTelemetry Integration** — Export traces to any OTel-compatible backend (Jaeger, Datadog, Honeycomb)
+- **Azure Monitor Support** — Native integration with Azure Application Insights
 - **Local JSONL Export** — Human-readable trace files in `.agent-trace/traces.jsonl`
 - **Claude Code Hooks** — Native integration with Claude Code's hook system
 - **Model Identification** — Automatic normalization of model IDs (e.g., `anthropic/claude-opus-4-5-20251101`)
@@ -20,12 +21,31 @@ Track which AI models made which code changes and export traces to observability
 ## Installation
 
 ```bash
-# Install with tracing dependencies
-pip install agent-trace[trace]
+# Install base package (includes OpenTelemetry core)
+pip install agent-trace
+
+# With OTLP exporter (Jaeger, Datadog, Honeycomb)
+pip install agent-trace[otlp]
+
+# With Azure Monitor exporter
+pip install agent-trace[azure]
+
+# With all exporters
+pip install agent-trace[all]
 
 # Or with uv
-uv add agent-trace --extra trace
+uv add agent-trace
+uv add agent-trace --extra otlp
+uv add agent-trace --extra azure
 ```
+
+### Dependencies
+
+| Package | Included In |
+|---------|-------------|
+| opentelemetry-api, opentelemetry-sdk | Base install |
+| opentelemetry-exporter-otlp | `[otlp]` extra |
+| azure-monitor-opentelemetry-exporter | `[azure]` extra |
 
 ## Quick Start
 
@@ -131,6 +151,7 @@ Agent Trace can be configured via environment variables:
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
 | `AGENT_TRACE_OTLP_ENDPOINT` | - | OTLP endpoint URL for trace export |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | - | Azure Application Insights connection string |
 | `AGENT_TRACE_FILE_EXPORT` | `true` | Enable JSONL file export |
 | `AGENT_TRACE_CONSOLE_EXPORT` | `false` | Enable console span output |
 
@@ -142,6 +163,7 @@ Agent Trace can be configured via environment variables:
 | `console_export` | `bool` | `False` | Export spans to console (debugging) |
 | `file_export` | `bool` | `True` | Write traces to JSONL file |
 | `otlp_endpoint` | `str \| None` | `None` | OTLP endpoint for production export |
+| `azure_connection_string` | `str \| None` | `None` | Azure Application Insights connection string |
 
 ### OTLP Export
 
@@ -152,6 +174,22 @@ tracer = get_tracer(
     otlp_endpoint="http://localhost:4317",
     file_export=True,
 )
+```
+
+### Azure Monitor Export
+
+To send traces to Azure Application Insights:
+
+```python
+tracer = get_tracer(
+    azure_connection_string="InstrumentationKey=xxx;IngestionEndpoint=https://xxx.applicationinsights.azure.com/",
+)
+```
+
+Or set the environment variable:
+
+```bash
+export APPLICATIONINSIGHTS_CONNECTION_STRING="InstrumentationKey=xxx;..."
 ```
 
 ## API Reference
