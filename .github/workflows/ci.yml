@@ -28,14 +28,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras --dev
 
-      - name: Format check
-        run: uv run ruff format --check src tests
-
-      - name: Lint
-        run: uv run ruff check src tests
-
-      - name: Type check
-        run: uv run basedpyright src
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files
 
   test:
     name: Tests
