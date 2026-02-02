@@ -100,39 +100,33 @@ Traces are stored in `.agent-trace/traces.jsonl` with this schema:
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "id": "uuid",
+  "event_type": "file_edit",
   "timestamp": "2025-01-15T10:30:00Z",
+  "session_id": "session-123",
   "vcs": {
     "type": "git",
     "revision": "abc123..."
   },
-  "tool": {
-    "name": "claude-code"
+  "contributor": {
+    "type": "ai",
+    "model_id": "anthropic/claude-sonnet-4-20250514"
   },
-  "files": [
-    {
-      "path": "src/main.py",
-      "conversations": [
-        {
-          "url": "file:///path/to/transcript",
-          "contributor": {
-            "type": "ai",
-            "model_id": "anthropic/claude-sonnet-4-20250514"
-          },
-          "ranges": [
-            { "start_line": 10, "end_line": 25 }
-          ]
-        }
-      ]
-    }
-  ],
+  "file": {
+    "path": "src/main.py",
+    "ranges": [
+      { "start_line": 10, "end_line": 25 }
+    ]
+  },
+  "tool_name": "Edit",
   "metadata": {
-    "tool_name": "Edit",
-    "session_id": "session-123"
+    "transcript_url": "file:///path/to/transcript"
   }
 }
 ```
+
+Note: The `file` field is `null` for non-file events like `session_start`, `session_end`, and `command_run`.
 
 ## Configuration
 
