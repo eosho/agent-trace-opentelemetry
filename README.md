@@ -91,7 +91,7 @@ tracer.trace_file_edit(
 cat .agent-trace/traces.jsonl | tail -10 | jq -s .
 
 # Or use the poe task
-poe trace-view
+uv run poe trace-view
 ```
 
 ## Trace Format
@@ -240,20 +240,20 @@ cd agent-trace-opentelemetry
 uv sync --all-extras --dev
 
 # Run checks
-poe check        # fmt, lint, typecheck, slop, test
-poe quality      # fmt, lint, typecheck, metrics
+uv run poe check        # fmt, lint, typecheck, slop, test
+uv run poe quality      # fmt, lint, typecheck, metrics
 ```
 
 ### Available Tasks
 
 | Task | Description |
 | ------ | ------------- |
-| `poe fmt` | Format code with ruff |
-| `poe lint` | Lint and fix issues |
-| `poe typecheck` | Run basedpyright |
-| `poe test` | Run pytest |
-| `poe trace` | Record AI code attribution |
-| `poe trace-view` | View recent traces |
+| `uv run poe fmt` | Format code with ruff |
+| `uv run poe lint` | Lint and fix issues |
+| `uv run poe typecheck` | Run basedpyright |
+| `uv run poe test` | Run pytest |
+| `uv run poe trace` | Record AI code attribution |
+| `uv run poe trace-view` | View recent traces |
 
 ## Semantic Attributes
 
