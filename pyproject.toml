@@ -1,0 +1,245 @@
+[project]
+name = "agent-trace"
+version = "0.1.0"
+description = "OpenTelemetry-based AI code attribution tracking for Claude Code and other AI coding assistants"
+authors = [{ name = "Agent Trace Contributors" }]
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["ai", "agent", "opentelemetry", "tracing", "attribution", "claude", "code-provenance"]
+license-files = ["LICENSE"]
+urls.homepage = "https://github.com/eosho/agent-trace-opentelemetry"
+urls.source = "https://github.com/eosho/agent-trace-opentelemetry"
+urls.issues = "https://github.com/eosho/agent-trace-opentelemetry/issues"
+urls.documentation = "https://github.com/eosho/agent-trace-opentelemetry#readme"
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Logging",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "pydantic>=2.9.0",
+    "typing-extensions>=4.12",
+]
+
+[project.optional-dependencies]
+trace = [
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "opentelemetry-semantic-conventions>=0.49b0",
+    "opentelemetry-exporter-otlp>=1.28.0",
+]
+# Uncomment extras as needed for your project
+# api = [
+#     "fastapi>=0.115.0",
+#     "uvicorn[standard]>=0.30.0",
+# ]
+# ai = [
+#     "langchain>=1.0.5",
+#     "langchain-openai>=1.0.2",
+#     "langgraph>=1.0.2",
+# ]
+# db = [
+#     "sqlalchemy>=2.0.0",
+#     "alembic>=1.13.0",
+#     "asyncpg>=0.29.0",
+# ]
+
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.14.4",
+    "basedpyright>=1.29.0",
+    "poethepoet>=0.29.0",
+    "pre-commit==4.4.0",
+    "radon>=6.0.0",
+    "vulture>=2.14",
+    "sloppylint>=0.5.1",
+
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+agent-trace = "agent_trace.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_trace"]
+
+[tool.poe.tasks]
+# Setup and Installation
+bootstrap = { shell = "bash devsetup.sh", help = "Full dev environment setup (Python, venv, deps, hooks)" }
+setup = "uv sync --all-extras --dev && uv run poe pre-commit-install"
+install = "uv sync --all-extras --dev"
+venv = "uv venv"
+pre-commit-install = "pre-commit install"
+
+# Code Quality and Formatting
+fmt = "ruff format src tests"
+lint = "ruff check --fix src tests"
+lint-unsafe = "ruff check --fix --unsafe-fixes src tests"
+typecheck = "basedpyright src"
+slop = "sloppylint src/ --lenient"
+slop-strict = "sloppylint src/ --strict"
+
+# Code Quality Metrics (anti-slop)
+metrics = ["metrics-complexity", "metrics-deadcode", "slop"]
+metrics-complexity = "radon cc src -a -nb"
+metrics-deadcode = "vulture src --min-confidence 80"
+
+# Agent Trace (AI code attribution)
+trace = { shell = "PYTHONPATH=. python -m agent_trace.cli", help = "Record AI code attribution (pipe JSON to stdin)" }
+trace-view = { shell = "cat .agent-trace/traces.jsonl 2>/dev/null | tail -10 | jq -s .", help = "View recent traces" }
+
+# Comprehensive Checks
+check = ["fmt", "lint", "typecheck", "slop", "test"]
+quality = ["fmt", "lint", "typecheck", "metrics"]
+
+# Testing
+test = "pytest tests/ -v"
+test-cov = "pytest tests/ --cov=src --cov-report=html --cov-report=term"
+all-tests = "pytest tests/ -v -n auto"
+all-tests-cov = "pytest tests/ -v -n auto --cov=src --cov-report=html --cov-report=term"
+
+# Building and Publishing
+build = "uv build"
+clean-dist = "rm -rf dist/"
+publish = "uv publish"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+fix = true
+include = ["*.py", "*.pyi", "**/pyproject.toml", "*.ipynb"]
+preview = true
+
+[tool.ruff.lint]
+fixable = ["ALL"]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ARG", # flake8-unused-arguments
+    "SIM", # flake8-simplify
+    # Anti-slop rules
+    "FBT",  # flake8-boolean-trap (catches ambiguous boolean params)
+    "BLE",  # flake8-blind-except (catches bare except:)
+    "C90",  # mccabe complexity
+    "ERA",  # eradicate (commented-out code)
+    "TRY",  # tryceratops (exception handling)
+    "PERF", # performance anti-patterns
+    "FURB", # refurb (modern Python idioms)
+    "PLR",  # pylint refactoring
+    "RUF",  # ruff-specific rules
+    "S",    # flake8-bandit (security)
+    "T20",  # flake8-print (catches debug print statements)
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # function calls in argument defaults (needed for FastAPI Depends)
+    "ARG002", # unused method argument (common in base classes)
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 7
+max-branches = 10
+max-nested-blocks = 3
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]   # Allow unused imports in __init__.py
+"tests/**/*.py" = ["S101", "PLR6301", "PLR2004"]  # Allow assert, self in tests, magic numbers
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.basedpyright]
+pythonVersion = "3.11"
+typeCheckingMode = "strict"
+include = ["src"]
+exclude = ["**/__pycache__", "**/.*", "tests/", "scripts/"]
+# Relax rules that cause friction without adding safety
+reportMissingTypeStubs = false         # Third-party libs often lack stubs
+reportUnknownMemberType = "warning"    # Flag but don't block
+reportUnknownArgumentType = "warning"  # Flag but don't block
+reportUnknownVariableType = "warning"  # Flag but don't block
+reportUntypedFunctionDecorator = false # Many decorators are untyped
+# Keep these strict - they catch real bugs
+reportPrivateUsage = "warning"
+reportConstantRedefinition = "error"
+reportIncompatibleMethodOverride = "error"
+reportIncompatibleVariableOverride = "error"
+reportUnnecessaryIsInstance = "warning"
+reportUnnecessaryCast = "warning"
+reportUnnecessaryComparison = "warning"
+reportAssertAlwaysTrue = "error"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--showlocals"]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/.venv/*",
+    "*/venv/*",
+    "*/scripts/*",
+]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "@overload",
+]
+
+# Sloppylint - AI slop detector
+# https://github.com/rsionnach/sloppylint
+[tool.sloppy]
+ignore = ["tests/*", "scripts/*", ".github/*"]
+disable = ["magic_number"]                     # Ruff handles this better
+severity = "high"                              # Only critical/high issues
+max-score = 100                                # CI fails above this
+ci = false                                     # Set true in CI pipeline
+format = "detailed"
