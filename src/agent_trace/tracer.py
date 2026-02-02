@@ -2,16 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
-import shutil
-import subprocess  # noqa: S404
 from collections.abc import Mapping
-from datetime import UTC, datetime
 from functools import lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
@@ -20,152 +14,33 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 from opentelemetry.semconv.attributes import service_attributes
 from opentelemetry.trace import Status, StatusCode
 
+from agent_trace.constants import (
+    ATTR_CONTENT_HASH,
+    ATTR_CONTRIBUTOR_TYPE,
+    ATTR_FILE_PATH,
+    ATTR_GIT_REVISION,
+    ATTR_MODEL_ID,
+    ATTR_RANGE_END,
+    ATTR_RANGE_START,
+    ATTR_SESSION_ID,
+    ATTR_TOOL_NAME,
+    ENV_AZURE_CONNECTION_STRING,
+    ENV_CONSOLE_EXPORT,
+    ENV_FILE_EXPORT,
+    ENV_OTLP_ENDPOINT,
+)
 from agent_trace.models import ContributorType, EventType, FileRange, HookInput, TraceEvent
+from agent_trace.utils import (
+    get_env_bool,
+    get_git_revision,
+    get_workspace_root,
+    normalize_model_id,
+    to_relative_path,
+    write_event_record,
+)
 
 if TYPE_CHECKING:
     pass
-
-# Semantic convention attributes for agent traces
-ATTR_CONTRIBUTOR_TYPE = "agent_trace.contributor.type"
-ATTR_MODEL_ID = "agent_trace.contributor.model_id"
-ATTR_EVENT_TYPE = "agent_trace.event.type"
-ATTR_FILE_PATH = "agent_trace.file.path"
-ATTR_RANGE_START = "agent_trace.range.start_line"
-ATTR_RANGE_END = "agent_trace.range.end_line"
-ATTR_CONTENT_HASH = "agent_trace.range.content_hash"
-ATTR_TOOL_NAME = "agent_trace.tool.name"
-ATTR_SESSION_ID = "agent_trace.session.id"
-ATTR_GIT_REVISION = "agent_trace.vcs.revision"
-ATTR_TRANSCRIPT_URL = "agent_trace.conversation.url"
-
-# Default trace file path
-TRACE_FILE = ".agent-trace/traces.jsonl"
-
-# Environment variable names
-ENV_OTLP_ENDPOINT = "AGENT_TRACE_OTLP_ENDPOINT"
-ENV_AZURE_CONNECTION_STRING = "APPLICATIONINSIGHTS_CONNECTION_STRING"
-ENV_FILE_EXPORT = "AGENT_TRACE_FILE_EXPORT"
-ENV_CONSOLE_EXPORT = "AGENT_TRACE_CONSOLE_EXPORT"
-
-
-def _get_env_bool(name: str, *, default: bool) -> bool:
-    """Get a boolean from environment variable."""
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.lower() in {"true", "1", "yes"}
-
-
-def _find_git() -> str | None:
-    """Find the git executable path."""
-    return shutil.which("git")
-
-
-def _get_git_revision() -> str | None:
-    """Get current git commit SHA."""
-    git_path = _find_git()
-    if not git_path:
-        return None
-    try:
-        result = subprocess.run(  # noqa: S603
-            [git_path, "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError:
-        return None
-
-
-def _get_workspace_root() -> Path:
-    """Get the workspace root directory."""
-    git_path = _find_git()
-    if not git_path:
-        return Path.cwd()
-    try:
-        result = subprocess.run(  # noqa: S603
-            [git_path, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return Path(result.stdout.strip())
-    except subprocess.CalledProcessError:
-        return Path.cwd()
-
-
-def _normalize_model_id(model: str | None) -> str | None:
-    """Normalize model ID to provider/model format."""
-    if not model:
-        return None
-    if "/" in model:
-        return model
-
-    prefixes = {
-        "claude-": "anthropic",
-        "gpt-": "openai",
-        "o1": "openai",
-        "o3": "openai",
-        "gemini-": "google",
-    }
-    for prefix, provider in prefixes.items():
-        if model.startswith(prefix):
-            return f"{provider}/{model}"
-    return model
-
-
-def _to_relative_path(absolute_path: str, root: Path) -> str:
-    """Convert absolute path to relative path from repo root."""
-    try:
-        return str(Path(absolute_path).relative_to(root))
-    except ValueError:
-        return absolute_path
-
-
-def _write_event_record(
-    event: TraceEvent,
-    workspace_root: Path,
-) -> None:
-    """Write a trace event record to the JSONL file.
-
-    Args:
-        event: The trace event to record.
-        workspace_root: The workspace root directory.
-    """
-    trace_path = workspace_root / TRACE_FILE
-
-    trace_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Build file info if present
-    file_info = None
-    if event.file_path:
-        relative_path = _to_relative_path(event.file_path, workspace_root)
-        file_info = {
-            "path": relative_path,
-            "ranges": [{"start_line": r.start_line, "end_line": r.end_line} for r in event.ranges]
-            if event.ranges
-            else [],
-        }
-
-    record = {
-        "version": "1.1",
-        "id": str(uuid4()),
-        "event_type": str(event.event_type),
-        "timestamp": datetime.now(UTC).isoformat(),
-        "session_id": event.session_id,
-        "vcs": {"type": "git", "revision": _get_git_revision()},
-        "contributor": {
-            "type": event.contributor.type.value,
-            "model_id": event.contributor.model_id,
-        },
-        "file": file_info,
-        "tool_name": event.tool_name,
-        "metadata": event.metadata or {},
-    }
-
-    with trace_path.open("a") as f:
-        f.write(json.dumps(record) + "\n")
 
 
 class AgentTracer:
@@ -189,7 +64,7 @@ class AgentTracer:
             otlp_endpoint: Optional OTLP endpoint for production export.
             azure_connection_string: Optional Azure Application Insights connection string.
         """
-        self._workspace_root = _get_workspace_root()
+        self._workspace_root = get_workspace_root()
         self._file_export = file_export
 
         resource = Resource.create({
@@ -225,7 +100,7 @@ class AgentTracer:
         """
         # Write to JSONL file if enabled
         if self._file_export:
-            _write_event_record(event, self._workspace_root)
+            write_event_record(event, self._workspace_root)
 
         # Emit OTel span
         with self._tracer.start_as_current_span(
@@ -237,7 +112,7 @@ class AgentTracer:
                 span.set_attribute(ATTR_MODEL_ID, event.contributor.model_id)
 
             if event.file_path:
-                relative_path = _to_relative_path(event.file_path, self._workspace_root)
+                relative_path = to_relative_path(event.file_path, self._workspace_root)
                 span.set_attribute(ATTR_FILE_PATH, relative_path)
 
             if event.tool_name:
@@ -246,7 +121,7 @@ class AgentTracer:
             if event.session_id:
                 span.set_attribute(ATTR_SESSION_ID, event.session_id)
 
-            revision = _get_git_revision()
+            revision = get_git_revision()
             if revision:
                 span.set_attribute(ATTR_GIT_REVISION, revision)
 
@@ -288,7 +163,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
 
         event = TraceEvent(
             event_type=EventType.FILE_EDIT,
@@ -324,7 +199,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         ranges = [FileRange(start_line=1, end_line=max(1, line_count))] if line_count else []
 
         event = TraceEvent(
@@ -355,7 +230,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
 
         event = TraceEvent(
             event_type=EventType.FILE_DELETE,
@@ -383,7 +258,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
 
         event = TraceEvent(
             event_type=EventType.SESSION_START,
@@ -410,7 +285,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
 
         event = TraceEvent(
             event_type=EventType.SESSION_END,
@@ -443,7 +318,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         metadata: dict[str, str | int | float | bool] = {}
         if review_type:
             metadata["review_type"] = review_type
@@ -480,7 +355,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         metadata: dict[str, str | int | float | bool] = {}
         if suggestion_type:
             metadata["suggestion_type"] = suggestion_type
@@ -515,7 +390,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         metadata: dict[str, str | int | float | bool] = {}
         if refactor_type:
             metadata["refactor_type"] = refactor_type
@@ -552,7 +427,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         metadata: dict[str, str | int | float | bool] = {"resolved": resolved}
         if issue_type:
             metadata["issue_type"] = issue_type
@@ -589,7 +464,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         metadata: dict[str, str | int | float | bool] = {}
         if test_framework:
             metadata["test_framework"] = test_framework
@@ -628,7 +503,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         metadata: dict[str, str | int | float | bool] = {
             "passed": passed,
             "failed": failed,
@@ -666,7 +541,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         metadata: dict[str, str | int | float | bool] = {"command": command}
         if exit_code is not None:
             metadata["exit_code"] = exit_code
@@ -704,7 +579,7 @@ class AgentTracer:
         """
         from agent_trace.models import Contributor
 
-        model_id = _normalize_model_id(model)
+        model_id = normalize_model_id(model)
         event_metadata: dict[str, str | int | float | bool] = {"custom_event_name": event_name}
         if metadata:
             event_metadata |= metadata
@@ -786,10 +661,10 @@ def get_tracer(
     resolved_console = (
         console_export
         if console_export is not None
-        else _get_env_bool(ENV_CONSOLE_EXPORT, default=False)
+        else get_env_bool(ENV_CONSOLE_EXPORT, default=False)
     )
     resolved_file = (
-        file_export if file_export is not None else _get_env_bool(ENV_FILE_EXPORT, default=True)
+        file_export if file_export is not None else get_env_bool(ENV_FILE_EXPORT, default=True)
     )
     resolved_otlp = otlp_endpoint or os.environ.get(ENV_OTLP_ENDPOINT)
     resolved_azure = azure_connection_string or os.environ.get(ENV_AZURE_CONNECTION_STRING)

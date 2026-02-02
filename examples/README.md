@@ -184,7 +184,7 @@ tracer.trace_custom(
 ## Example Files
 
 | File | Description |
-|------|-------------|
+| ------ | ------------- |
 | [hooks/](hooks/) | Claude Code and Cursor hook configurations |
 
 ## Configuration
