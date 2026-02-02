@@ -1,0 +1,9 @@
+{
+  "rules": [
+    {
+      "event": "file_edit",
+      "command": "agent-trace",
+      "match": "**/*"
+    }
+  ]
+}

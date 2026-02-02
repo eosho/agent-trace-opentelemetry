@@ -1,4 +1,4 @@
-# Agent Trace
+# Agent Trace (OpenTelemetry)
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -6,16 +6,16 @@
 
 **OpenTelemetry-based AI code attribution tracking** for Claude Code and other AI coding assistants.
 
-Track which AI models made which code changes in your codebase. Agent Trace provides provenance metadata for AI-generated code, enabling compliance, auditing, and understanding of your codebase's AI contribution history.
+Track which AI models made which code changes and export traces to observability backends like Jaeger, Datadog, or Honeycomb.
 
 ## Features
 
-- 🔍 **Code Attribution** — Track AI contributions at the file and line-range level
-- 📊 **OpenTelemetry Integration** — Export traces to any OTel-compatible backend
-- 📁 **Local JSONL Export** — Human-readable trace files in `.agent-trace/traces.jsonl`
-- 🔗 **Claude Code Hooks** — Native integration with Claude Code's hook system
-- 🏷️ **Model Identification** — Automatic normalization of model IDs (e.g., `anthropic/claude-opus-4-5-20251101`)
-- 🔒 **Git Integration** — Automatic VCS revision tracking
+- **OpenTelemetry Integration** — Export traces to any OTel-compatible backend (Jaeger, Datadog, Honeycomb)
+- **Local JSONL Export** — Human-readable trace files in `.agent-trace/traces.jsonl`
+- **Claude Code Hooks** — Native integration with Claude Code's hook system
+- **Model Identification** — Automatic normalization of model IDs (e.g., `anthropic/claude-opus-4-5-20251101`)
+- **Git Context** — Automatic VCS revision tracking
+- **Python Library** — Embed tracing in your own applications
 
 ## Installation
 
@@ -29,26 +29,32 @@ uv add agent-trace --extra trace
 
 ## Quick Start
 
-### Using with Claude Code Hooks
+### Option 1: Claude Code Hooks (Automatic)
 
-Agent Trace integrates with Claude Code's hook system. Add to your Claude Code hooks configuration:
+1. **Install agent-trace**:
 
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "command": "agent-trace"
-      }
-    ]
+  ```bash
+  pip install agent-trace[trace]
+  ```
+
+2. **Configure Claude Code** — Copy to `~/.claude/settings.json`:
+
+  ```json
+  {
+    "hooks": {
+      "PostToolUse": [
+        {
+          "matcher": "Write|Edit",
+          "command": "agent-trace"
+        }
+      ]
+    }
   }
-}
-```
+  ```
 
-The CLI reads hook JSON from stdin and automatically records traces.
+3. **Restart Claude Code** — The hook runs automatically on every file edit
 
-### Programmatic Usage
+### Option 2: Programmatic Usage
 
 ```python
 from agent_trace import AgentTracer, FileRange, get_tracer
@@ -208,3 +214,7 @@ Agent Trace uses these OpenTelemetry semantic attributes:
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+## See Also
+
+- **[OpenTelemetry Python](https://opentelemetry.io/docs/languages/python/)** — OTel documentation
