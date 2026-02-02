@@ -39,14 +39,6 @@ uv add agent-trace --extra otlp
 uv add agent-trace --extra azure
 ```
 
-### Dependencies
-
-| Package | Included In |
-| --------- | ------------- |
-| opentelemetry-api, opentelemetry-sdk | Base install |
-| opentelemetry-exporter-otlp | `[otlp]` extra |
-| azure-monitor-opentelemetry-exporter | `[azure]` extra |
-
 ## Quick Start
 
 ### Option 1: Claude Code Hooks (Automatic)
@@ -223,84 +215,7 @@ Agent Trace supports tracking various AI coding events:
 | `COMMAND_RUN` | `trace_command_run()` | Terminal command execution |
 | `CUSTOM` | `trace_custom()` | Custom events |
 
-### Usage Examples
-
-```python
-from agent_trace import AgentTracer, FileRange, get_tracer
-
-tracer = get_tracer()
-
-# Track session lifecycle
-tracer.trace_session_start(
-    session_id="session-123",
-    model="claude-opus-4-20250514",
-    metadata={"workspace": "/home/user/project"},
-)
-
-# Track file operations
-tracer.trace_file_create(
-    file_path="src/new_module.py",
-    model="claude-sonnet-4-20250514",
-    line_count=50,
-)
-
-tracer.trace_file_edit(
-    file_path="src/main.py",
-    ranges=[FileRange(start_line=10, end_line=25)],
-    model="claude-sonnet-4-20250514",
-)
-
-# Track code assistance
-tracer.trace_code_review(
-    file_path="src/api.py",
-    ranges=[FileRange(start_line=1, end_line=100)],
-    model="claude-opus-4-20250514",
-    review_type="security",
-    findings=["SQL injection risk"],
-)
-
-tracer.trace_refactor(
-    file_path="src/utils.py",
-    ranges=[FileRange(start_line=20, end_line=50)],
-    model="claude-sonnet-4-20250514",
-    refactor_type="extract_method",
-)
-
-# Track testing
-tracer.trace_test_generate(
-    file_path="tests/test_api.py",
-    ranges=[FileRange(start_line=1, end_line=80)],
-    model="claude-sonnet-4-20250514",
-    test_framework="pytest",
-    test_count=5,
-)
-
-tracer.trace_test_run(
-    model="claude-sonnet-4-20250514",
-    passed=10,
-    failed=2,
-    skipped=1,
-)
-
-# Track terminal commands
-tracer.trace_command_run(
-    command="pytest -v",
-    model="claude-sonnet-4-20250514",
-    exit_code=0,
-)
-
-# Track custom events
-tracer.trace_custom(
-    event_name="deployment",
-    metadata={"environment": "staging"},
-)
-
-# End session
-tracer.trace_session_end(
-    session_id="session-123",
-    metadata={"duration_seconds": 3600},
-)
-```
+For detailed usage examples of each event type, see [examples/README.md](examples/README.md).
 
 ### Tracer Methods
 
